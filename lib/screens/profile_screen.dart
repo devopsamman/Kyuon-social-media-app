@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../models/post_data.dart';
 import '../providers/theme_provider.dart';
+import '../services/content_provider.dart';
 import 'login_screen.dart';
 import 'edit_profile_screen.dart';
 
@@ -33,6 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
+      // Fetch profile data
       final profileResponse =
           await Supabase.instance.client
               .from('profiles')
@@ -40,18 +42,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
               .eq('id', user.id)
               .maybeSingle();
 
+      // Fetch posts without join - just get the post data
       final postsResponse = await Supabase.instance.client
           .from('posts')
-          .select('*, profiles(username, profile_image_url)')
+          .select()
           .eq('user_id', user.id)
           .order('created_at', ascending: false);
+
+      // Add profile data to each post manually
+      final postsWithProfile =
+          (postsResponse as List).map((postJson) {
+            postJson['profiles'] = {
+              'username': profileResponse?['username'] ?? 'Unknown',
+              'profile_image_url': profileResponse?['profile_image_url'] ?? '',
+            };
+            return postJson;
+          }).toList();
 
       setState(() {
         _profileData = profileResponse;
         _userPosts =
-            (postsResponse as List)
-                .map((json) => PostData.fromJson(json))
-                .toList();
+            postsWithProfile.map((json) => PostData.fromJson(json)).toList();
         _isLoading = false;
       });
     } catch (e) {
@@ -321,6 +332,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     // Refresh profile if edited
                     if (result == true) {
                       _fetchProfile();
+                      // Also refresh ContentProvider to update story circle on home feed
+                      if (mounted) {
+                        await Provider.of<ContentProvider>(
+                          context,
+                          listen: false,
+                        ).refreshData();
+                      }
                     }
                   },
                   style: OutlinedButton.styleFrom(

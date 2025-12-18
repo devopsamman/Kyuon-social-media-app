@@ -43,15 +43,66 @@ class _CommentsScreenState extends State<CommentsScreen> {
     setState(() => _isLoading = true);
     try {
       print('Loading comments for post: ${widget.postId}');
-      final response = await Supabase.instance.client
+
+      // Fetch comments without join
+      final commentsResponse = await Supabase.instance.client
           .from('comments')
-          .select('*, profiles(username, profile_image_url)')
+          .select()
           .eq('post_id', widget.postId)
           .order('created_at', ascending: false);
 
-      print('Loaded ${(response as List).length} comments');
+      print('Loaded ${(commentsResponse as List).length} comments');
+
+      // Get unique user IDs from comments
+      final userIds =
+          (commentsResponse as List)
+              .map((c) => c['user_id']?.toString())
+              .whereType<String>()
+              .toSet()
+              .toList();
+
+      // Fetch profiles for comment authors
+      List<Map<String, dynamic>> profilesResponse = [];
+      if (userIds.isNotEmpty) {
+        try {
+          final allProfiles = await Supabase.instance.client
+              .from('profiles')
+              .select('id, username, profile_image_url');
+
+          profilesResponse =
+              (allProfiles as List)
+                  .where((p) => userIds.contains(p['id']?.toString()))
+                  .cast<Map<String, dynamic>>()
+                  .toList();
+        } catch (e) {
+          print('Error fetching profiles for comments: $e');
+          // Continue without profiles - will use defaults
+        }
+      }
+
+      // Create a map of user_id -> profile
+      final profilesMap = <String, Map<String, dynamic>>{
+        for (var profile in profilesResponse)
+          profile['id']?.toString() ?? '': profile,
+      };
+
+      // Combine comments with profiles
+      final commentsWithProfiles =
+          (commentsResponse as List).map((commentJson) {
+            final userId = commentJson['user_id']?.toString() ?? '';
+            final profile = profilesMap[userId] ?? <String, dynamic>{};
+
+            // Create combined JSON
+            final combinedJson = Map<String, dynamic>.from(commentJson);
+            combinedJson['profiles'] = {
+              'username': profile['username'] ?? 'Unknown',
+              'profile_image_url': profile['profile_image_url'] ?? '',
+            };
+            return combinedJson;
+          }).toList();
+
       setState(() {
-        _comments = List<Map<String, dynamic>>.from(response);
+        _comments = List<Map<String, dynamic>>.from(commentsWithProfiles);
         _isLoading = false;
       });
     } catch (e) {

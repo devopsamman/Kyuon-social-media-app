@@ -553,6 +553,29 @@ class SupabaseService {
   }
 
   // Check if user has completed profile setup
+  /// Get current user's profile data
+  Future<Map<String, dynamic>?> getCurrentUserProfile() async {
+    try {
+      final currentUser = _client.auth.currentUser;
+      if (currentUser == null) {
+        print('No authenticated user');
+        return null;
+      }
+
+      final profile =
+          await _client
+              .from('profiles')
+              .select('id, username, profile_image_url')
+              .eq('id', currentUser.id)
+              .maybeSingle();
+
+      return profile;
+    } catch (e) {
+      print('Error fetching current user profile: $e');
+      return null;
+    }
+  }
+
   Future<bool> hasCompletedProfile(String userId) async {
     try {
       final profile =

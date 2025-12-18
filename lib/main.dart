@@ -188,7 +188,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
   final List<Widget> _pages = [
     const HomeFeedScreen(),
     const PlaceholderScreen(label: 'Search'),
-    const ComposeScreen(),
+    const PlaceholderScreen(label: 'Create'), // Placeholder for create
     const ReelsScreen(),
     const ProfileScreen(),
   ];
@@ -200,6 +200,34 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
     'assets/icons/reel.svg',
     'assets/icons/Profile.svg',
   ];
+
+  void _onNavTap(int index) async {
+    // Special handling for create button (index 2)
+    if (index == 2) {
+      // Open ComposeScreen as a fullscreen dialog
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const ComposeScreen(),
+          fullscreenDialog: true,
+        ),
+      );
+
+      // If upload was successful (result == true), refresh the feed and go to home
+      if (result == true && mounted) {
+        setState(() => _currentIndex = 0); // Switch to home tab
+        // Refresh the content provider
+        if (mounted) {
+          await Provider.of<ContentProvider>(
+            context,
+            listen: false,
+          ).refreshData();
+        }
+      }
+    } else {
+      setState(() => _currentIndex = index);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -230,7 +258,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
           type: BottomNavigationBarType.fixed,
           backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
           elevation: 0,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: _onNavTap,
           items: List.generate(_navIcons.length, (index) {
             return BottomNavigationBarItem(
               icon: AnimatedContainer(

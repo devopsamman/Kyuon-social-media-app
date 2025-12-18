@@ -37,13 +37,15 @@ class ContentProvider extends ChangeNotifier {
       print('Received ${posts.length} posts from service');
       _posts = posts;
       print('Loaded ${posts.length} posts into provider');
-      
+
       // Debug: Print first post details if available
       if (posts.isNotEmpty) {
         final firstPost = posts.first;
         print('First post ID: ${firstPost.id}');
         print('First post username: ${firstPost.username}');
-        print('First post body: ${firstPost.body.substring(0, firstPost.body.length > 50 ? 50 : firstPost.body.length)}...');
+        print(
+          'First post body: ${firstPost.body.substring(0, firstPost.body.length > 50 ? 50 : firstPost.body.length)}...',
+        );
         print('First post has image: ${firstPost.imageUrl != null}');
       } else {
         print('WARNING: No posts were loaded!');
@@ -52,18 +54,26 @@ class ContentProvider extends ChangeNotifier {
       print('Loading stories...');
       final stories = await _supabaseService.getStories();
       print('Fetched ${stories.length} stories from database');
-      // Keep the "you" story at the beginning
-      final myStory = _stories.firstWhere(
-        (s) => s.isOwn,
-        orElse:
-            () => StoryData(
-              username: 'you',
-              avatarUrl: 'https://i.pravatar.cc/150?img=68',
-              isOwn: true,
-            ),
+
+      // Fetch current user's profile to get their actual photo
+      final currentUser = await _supabaseService.getCurrentUserProfile();
+      final userProfilePhoto =
+          currentUser?['profile_image_url'] as String? ??
+          'https://i.pravatar.cc/150?img=68';
+      final userProfileName = currentUser?['username'] as String? ?? 'you';
+
+      // Create "Your story" with actual profile photo
+      final myStory = StoryData(
+        username: userProfileName,
+        avatarUrl: userProfilePhoto,
+        isOwn: true,
       );
+
       // Filter out stories without imageUrl for display
-      final validStories = stories.where((s) => s.imageUrl != null && s.imageUrl!.isNotEmpty).toList();
+      final validStories =
+          stories
+              .where((s) => s.imageUrl != null && s.imageUrl!.isNotEmpty)
+              .toList();
       print('Valid stories after filtering: ${validStories.length}');
       _stories = [myStory, ...validStories];
       print('Total stories to display: ${_stories.length}');
@@ -72,7 +82,7 @@ class ContentProvider extends ChangeNotifier {
       final reels = await _supabaseService.getReels();
       _reels = reels;
       print('Loaded ${reels.length} reels');
-      
+
       // Debug: Print first reel details if available
       if (reels.isNotEmpty) {
         final firstReel = reels.first;
@@ -96,7 +106,9 @@ class ContentProvider extends ChangeNotifier {
   Future<void> refreshData() async {
     print('Refreshing data...');
     await _loadData();
-    print('Data refresh complete. Posts: ${_posts.length}, Stories: ${_stories.length}, Reels: ${_reels.length}');
+    print(
+      'Data refresh complete. Posts: ${_posts.length}, Stories: ${_stories.length}, Reels: ${_reels.length}',
+    );
   }
 
   Future<void> addPost(PostData post) async {

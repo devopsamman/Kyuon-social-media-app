@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/cloudinary_service.dart';
 import '../services/content_provider.dart';
 import '../services/supabase_service.dart';
@@ -27,6 +28,8 @@ class _ComposeScreenState extends State<ComposeScreen>
   bool _isVideo = false;
   XFile? _mediaFile;
   bool _isUploading = false;
+  double _uploadProgress = 0.0;
+  String _uploadStatus = '';
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
 
@@ -192,20 +195,40 @@ class _ComposeScreenState extends State<ComposeScreen>
       return;
     }
 
-    setState(() => _isUploading = true);
+    // Check authentication first
+    final supabaseService = SupabaseService();
+    final currentUser = Supabase.instance.client.auth.currentUser;
+
+    if (currentUser == null) {
+      _showErrorSnackBar('Please sign in to create posts or reels');
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+      _uploadProgress = 0.0;
+      _uploadStatus = 'Preparing upload...';
+    });
 
     try {
-      final supabaseService = SupabaseService();
-      await supabaseService.signInAnonymously();
-
       String? mediaUrl;
       if (_mediaFile != null) {
         final file = File(_mediaFile!.path);
 
         if (_mode == ComposeMode.reel) {
+          setState(() {
+            _uploadProgress = 0.1;
+            _uploadStatus = 'Uploading video...';
+          });
           mediaUrl = await _cloudinaryService.uploadVideo(file);
+          setState(() => _uploadProgress = 0.6);
         } else {
+          setState(() {
+            _uploadProgress = 0.1;
+            _uploadStatus = 'Uploading image...';
+          });
           mediaUrl = await _cloudinaryService.uploadImage(file);
+          setState(() => _uploadProgress = 0.6);
         }
       }
 
@@ -215,30 +238,58 @@ class _ComposeScreenState extends State<ComposeScreen>
         if (_captionController.text.isEmpty && mediaUrl == null) {
           throw Exception('Please add a caption or image');
         }
+        setState(() {
+          _uploadProgress = 0.7;
+          _uploadStatus = 'Creating post...';
+        });
         await supabaseService.createPost(_captionController.text, mediaUrl);
+        setState(() => _uploadProgress = 0.9);
         await provider.refreshData();
       } else if (_mode == ComposeMode.reel) {
         if (mediaUrl == null) throw Exception('Video required for reel');
         if (_captionController.text.isEmpty) {
           throw Exception('Please add a caption for your reel');
         }
+        setState(() {
+          _uploadProgress = 0.7;
+          _uploadStatus = 'Creating reel...';
+        });
         await supabaseService.createReel(mediaUrl, _captionController.text);
+        setState(() => _uploadProgress = 0.9);
         await provider.refreshData();
       }
 
+      setState(() => _uploadProgress = 1.0);
+
       if (mounted) {
-        _showSuccessSnackBar('Posted successfully!');
+        // Clean up state first
         _captionController.clear();
         setState(() {
           _mediaFile = null;
           _isUploading = false;
+          _uploadProgress = 0.0;
+          _uploadStatus = '';
         });
-        Navigator.pop(context);
+
+        // Show success message
+        _showSuccessSnackBar('Posted successfully!');
+
+        // Wait a bit before navigation to ensure UI is stable
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        // Navigate back if still mounted
+        if (mounted) {
+          Navigator.pop(context, true); // Return true to indicate success
+        }
       }
     } catch (e) {
       if (mounted) {
         _showErrorSnackBar('Failed to post: $e');
-        setState(() => _isUploading = false);
+        setState(() {
+          _isUploading = false;
+          _uploadProgress = 0.0;
+          _uploadStatus = '';
+        });
       }
     }
   }
@@ -316,33 +367,144 @@ class _ComposeScreenState extends State<ComposeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D14),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildModeSelector(),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildUserHeader(),
-                      const SizedBox(height: 16),
-                      _buildCaptionField(),
-                      const SizedBox(height: 20),
-                      _buildMediaSection(),
-                      const SizedBox(height: 24),
-                      _buildQuickActions(),
-                    ],
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                _buildHeader(),
+                _buildModeSelector(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildUserHeader(),
+                          const SizedBox(height: 16),
+                          _buildCaptionField(),
+                          const SizedBox(height: 20),
+                          _buildMediaSection(),
+                          const SizedBox(height: 24),
+                          _buildQuickActions(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Upload Progress Overlay
+          if (_isUploading) _buildUploadProgressOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadProgressOverlay() {
+    return Container(
+      color: Colors.black.withOpacity(0.85),
+      child: Center(
+        child: Container(
+          margin: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF667EEA).withOpacity(0.3),
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Animated icon
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(seconds: 2),
+                builder: (context, value, child) {
+                  return Transform.rotate(
+                    angle: value * 2 * 3.14159,
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF667EEA).withOpacity(0.5),
+                            blurRadius: 20,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        _mode == ComposeMode.reel
+                            ? Icons.video_library_rounded
+                            : Icons.cloud_upload_rounded,
+                        color: Colors.white,
+                        size: 48,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+
+              // Status text
+              Text(
+                _uploadStatus,
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+
+              // Progress bar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  height: 8,
+                  width: 200,
+                  child: LinearProgressIndicator(
+                    value: _uploadProgress,
+                    backgroundColor: Colors.white.withOpacity(0.1),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFF667EEA),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+
+              // Percentage text
+              Text(
+                '${(_uploadProgress * 100).toInt()}%',
+                style: GoogleFonts.inter(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -352,10 +514,8 @@ class _ComposeScreenState extends State<ComposeScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF0D0D14),
-        border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.05)),
-        ),
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -365,12 +525,12 @@ class _ComposeScreenState extends State<ComposeScreen>
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(
                 Icons.close_rounded,
-                color: Colors.white70,
+                color: Colors.black,
                 size: 22,
               ),
             ),
@@ -378,7 +538,7 @@ class _ComposeScreenState extends State<ComposeScreen>
           Text(
             'Create',
             style: GoogleFonts.spaceGrotesk(
-              color: Colors.white,
+              color: Colors.black,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
@@ -412,20 +572,14 @@ class _ComposeScreenState extends State<ComposeScreen>
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  gradient:
-                      canPost
-                          ? const LinearGradient(
-                            colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                          )
-                          : null,
-                  color: canPost ? null : Colors.white.withOpacity(0.1),
+                  color: canPost ? Colors.blue : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(12),
                   boxShadow:
                       canPost
                           ? [
                             BoxShadow(
-                              color: const Color(0xFF667EEA).withOpacity(0.3),
-                              blurRadius: 12,
+                              color: Colors.blue.withOpacity(0.2),
+                              blurRadius: 8,
                               offset: const Offset(0, 4),
                             ),
                           ]
@@ -446,7 +600,7 @@ class _ComposeScreenState extends State<ComposeScreen>
                         : Text(
                           _mode == ComposeMode.reel ? 'Share' : 'Post',
                           style: GoogleFonts.inter(
-                            color: canPost ? Colors.white : Colors.white38,
+                            color: Colors.white,
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                           ),
@@ -462,7 +616,7 @@ class _ComposeScreenState extends State<ComposeScreen>
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
+        color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -489,37 +643,22 @@ class _ComposeScreenState extends State<ComposeScreen>
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            gradient:
-                isSelected
-                    ? const LinearGradient(
-                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                    )
-                    : null,
+            color: isSelected ? Colors.black : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
-            boxShadow:
-                isSelected
-                    ? [
-                      BoxShadow(
-                        color: const Color(0xFF667EEA).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ]
-                    : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 icon,
-                color: isSelected ? Colors.white : Colors.white38,
+                color: isSelected ? Colors.white : Colors.grey.shade600,
                 size: 18,
               ),
               const SizedBox(width: 8),
               Text(
                 label,
                 style: GoogleFonts.inter(
-                  color: isSelected ? Colors.white : Colors.white38,
+                  color: isSelected ? Colors.white : Colors.grey.shade600,
                   fontSize: 14,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 ),
@@ -538,12 +677,10 @@ class _ComposeScreenState extends State<ComposeScreen>
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-            ),
+            color: Colors.grey.shade300,
             borderRadius: BorderRadius.circular(14),
           ),
-          child: const Icon(Icons.person, color: Colors.white, size: 24),
+          child: const Icon(Icons.person, color: Colors.grey, size: 24),
         ),
         const SizedBox(width: 12),
         Column(
@@ -552,14 +689,17 @@ class _ComposeScreenState extends State<ComposeScreen>
             Text(
               'You',
               style: GoogleFonts.inter(
-                color: Colors.white,
+                color: Colors.black,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
               ),
             ),
             Text(
               _mode == ComposeMode.reel ? 'Creating a reel' : 'Creating a post',
-              style: GoogleFonts.inter(color: Colors.white38, fontSize: 12),
+              style: GoogleFonts.inter(
+                color: Colors.grey.shade600,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
@@ -571,20 +711,20 @@ class _ComposeScreenState extends State<ComposeScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
+        color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color:
               _captionFocusNode.hasFocus
-                  ? const Color(0xFF667EEA).withOpacity(0.5)
-                  : Colors.transparent,
+                  ? Colors.grey.shade400
+                  : Colors.grey.shade200,
         ),
       ),
       child: TextField(
         controller: _captionController,
         focusNode: _captionFocusNode,
         style: GoogleFonts.inter(
-          color: Colors.white,
+          color: Colors.black,
           fontSize: 15,
           height: 1.5,
         ),
@@ -596,7 +736,10 @@ class _ComposeScreenState extends State<ComposeScreen>
               _mode == ComposeMode.reel
                   ? 'Write a caption for your reel...'
                   : 'What\'s on your mind?',
-          hintStyle: GoogleFonts.inter(color: Colors.white30, fontSize: 15),
+          hintStyle: GoogleFonts.inter(
+            color: Colors.grey.shade400,
+            fontSize: 15,
+          ),
           border: InputBorder.none,
           isDense: true,
           contentPadding: EdgeInsets.zero,
@@ -756,115 +899,48 @@ class _ComposeScreenState extends State<ComposeScreen>
       child: Container(
         height: 200,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [const Color(0xFF1A1A2E), const Color(0xFF16213E)],
-          ),
+          color: Colors.grey.shade50,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: const Color(0xFF667EEA).withOpacity(0.2),
-            width: 1.5,
-          ),
+          border: Border.all(color: Colors.grey.shade300, width: 1.5),
         ),
-        child: Stack(
-          children: [
-            // Decorative circles
-            Positioned(
-              top: -30,
-              right: -30,
-              child: Container(
-                width: 100,
-                height: 100,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
                   shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      const Color(0xFF667EEA).withOpacity(0.15),
-                      Colors.transparent,
-                    ],
-                  ),
+                ),
+                child: Icon(
+                  _mode == ComposeMode.reel
+                      ? Icons.videocam_rounded
+                      : Icons.add_photo_alternate_rounded,
+                  color: Colors.blue,
+                  size: 32,
                 ),
               ),
-            ),
-            Positioned(
-              bottom: -40,
-              left: -40,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      const Color(0xFF764BA2).withOpacity(0.1),
-                      Colors.transparent,
-                    ],
-                  ),
+              const SizedBox(height: 16),
+              Text(
+                _mode == ComposeMode.reel ? 'Add Video' : 'Add Photo',
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.black,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ),
-            // Content
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors:
-                            _mode == ComposeMode.reel
-                                ? [
-                                  const Color(0xFFFF6B6B),
-                                  const Color(0xFFFF8E53),
-                                ]
-                                : [
-                                  const Color(0xFF667EEA),
-                                  const Color(0xFF764BA2),
-                                ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (_mode == ComposeMode.reel
-                                  ? const Color(0xFFFF6B6B)
-                                  : const Color(0xFF667EEA))
-                              .withOpacity(0.3),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      _mode == ComposeMode.reel
-                          ? Icons.videocam_rounded
-                          : Icons.add_photo_alternate_rounded,
-                      size: 32,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _mode == ComposeMode.reel ? 'Add Video' : 'Add Photo',
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Tap to select from gallery',
-                    style: GoogleFonts.inter(
-                      color: Colors.white38,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 4),
+              Text(
+                'Tap to select from gallery',
+                style: GoogleFonts.inter(
+                  color: Colors.grey.shade600,
+                  fontSize: 13,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
