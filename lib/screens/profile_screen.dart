@@ -1,0 +1,421 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+import '../models/post_data.dart';
+import '../providers/theme_provider.dart';
+import 'login_screen.dart';
+import 'edit_profile_screen.dart';
+
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _isLoading = true;
+  Map<String, dynamic>? _profileData;
+  List<PostData> _userPosts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchProfile();
+  }
+
+  Future<void> _fetchProfile() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      // Handle unauthenticated state
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final profileResponse =
+          await Supabase.instance.client
+              .from('profiles')
+              .select()
+              .eq('id', user.id)
+              .maybeSingle();
+
+      final postsResponse = await Supabase.instance.client
+          .from('posts')
+          .select('*, profiles(username, profile_image_url)')
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false);
+
+      setState(() {
+        _profileData = profileResponse;
+        _userPosts =
+            (postsResponse as List)
+                .map((json) => PostData.fromJson(json))
+                .toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error fetching profile: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showThemeDialog(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Choose Theme'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<ThemeMode>(
+                  title: const Text('Light Mode'),
+                  value: ThemeMode.light,
+                  groupValue: themeProvider.themeMode,
+                  onChanged: (value) {
+                    if (value != null) {
+                      themeProvider.setThemeMode(value);
+                      Navigator.pop(context);
+                    }
+                  },
+                ),
+                RadioListTile<ThemeMode>(
+                  title: const Text('Dark Mode'),
+                  value: ThemeMode.dark,
+                  groupValue: themeProvider.themeMode,
+                  onChanged: (value) {
+                    if (value != null) {
+                      themeProvider.setThemeMode(value);
+                      Navigator.pop(context);
+                    }
+                  },
+                ),
+                RadioListTile<ThemeMode>(
+                  title: const Text('System Default'),
+                  value: ThemeMode.system,
+                  groupValue: themeProvider.themeMode,
+                  onChanged: (value) {
+                    if (value != null) {
+                      themeProvider.setThemeMode(value);
+                      Navigator.pop(context);
+                    }
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Center(
+        child: CircularProgressIndicator(
+          color:
+              Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white
+                  : Colors.black,
+        ),
+      );
+    }
+
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      return Center(
+        child: Text(
+          'Please sign in to view profile',
+          style: TextStyle(
+            color:
+                Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : Colors.black,
+          ),
+        ),
+      );
+    }
+
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: isDarkMode ? Colors.black : Colors.white,
+      appBar: AppBar(
+        backgroundColor: isDarkMode ? Colors.black : Colors.white,
+        title: Text(
+          _profileData?['username'] ?? 'Profile',
+          style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (value) async {
+              if (value == 'theme') {
+                _showThemeDialog(context);
+              } else if (value == 'logout') {
+                // Sign out from Supabase
+                await Supabase.instance.client.auth.signOut();
+
+                // Navigate to login screen
+                if (mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
+                    ),
+                    (route) => false,
+                  );
+                }
+              }
+            },
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem(
+                    value: 'theme',
+                    child: Row(
+                      children: [
+                        Icon(Icons.brightness_6, color: Colors.black),
+                        SizedBox(width: 8),
+                        Text('Theme Settings'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'logout',
+                    child: Row(
+                      children: [
+                        Icon(Icons.logout, color: Colors.black),
+                        SizedBox(width: 8),
+                        Text('Logout'),
+                      ],
+                    ),
+                  ),
+                ],
+          ),
+        ],
+      ),
+      body: DefaultTabController(
+        length: 2,
+        child: NestedScrollView(
+          headerSliverBuilder: (context, _) {
+            return [
+              SliverList(
+                delegate: SliverChildListDelegate([_buildProfileHeader()]),
+              ),
+            ];
+          },
+          body: Column(
+            children: [
+              const TabBar(
+                indicatorColor: Colors.blue,
+                labelColor: Colors.blue,
+                unselectedLabelColor: Colors.grey,
+                tabs: [
+                  Tab(icon: Icon(Icons.grid_on)),
+                  Tab(icon: Icon(Icons.person_pin_outlined)),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _buildPostsGrid(),
+                    const Center(
+                      child: Text(
+                        'Tagged Posts',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor:
+                    isDarkMode ? Colors.grey.shade800 : Colors.grey.shade200,
+                backgroundImage:
+                    (_profileData?['profile_image_url'] != null &&
+                            _profileData?['profile_image_url'] != '')
+                        ? NetworkImage(_profileData!['profile_image_url'])
+                        : null,
+                child:
+                    (_profileData?['profile_image_url'] == null ||
+                            _profileData?['profile_image_url'] == '')
+                        ? Icon(
+                          Icons.person,
+                          size: 40,
+                          color:
+                              isDarkMode
+                                  ? Colors.grey.shade600
+                                  : Colors.grey.shade400,
+                        )
+                        : null,
+              ),
+              const SizedBox(width: 24),
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStatColumn('Posts', _userPosts.length.toString()),
+                    _buildStatColumn('Followers', '0'),
+                    _buildStatColumn('Following', '0'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _profileData?['full_name'] ?? _profileData?['username'] ?? 'User',
+            style: TextStyle(
+              color: isDarkMode ? Colors.white : Colors.black,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _profileData?['bio'] ?? 'No bio yet.',
+            style: TextStyle(
+              color: isDarkMode ? Colors.grey : Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder:
+                            (context) => EditProfileScreen(
+                              profileData: _profileData ?? {},
+                            ),
+                      ),
+                    );
+                    // Refresh profile if edited
+                    if (result == true) {
+                      _fetchProfile();
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: isDarkMode ? Colors.grey : Colors.grey.shade400,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    'Edit Profile',
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {},
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: isDarkMode ? Colors.grey : Colors.grey.shade400,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    'Share Profile',
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatColumn(String label, String count) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      children: [
+        Text(
+          count,
+          style: TextStyle(
+            color: isDarkMode ? Colors.white : Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: isDarkMode ? Colors.grey : Colors.grey.shade700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPostsGrid() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: _userPosts.length,
+      itemBuilder: (context, index) {
+        final post = _userPosts[index];
+        return Image.network(
+          post.imageUrl ?? 'https://via.placeholder.com/150',
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+              child: Icon(
+                Icons.broken_image,
+                color: isDarkMode ? Colors.white : Colors.grey,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
