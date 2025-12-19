@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+import '../services/content_provider.dart';
+import '../widgets/skeleton.dart';
 
 class CommentsScreen extends StatefulWidget {
   final String postId;
   final int initialCommentCount;
+  final String contentType; // 'post' or 'reel'
 
   const CommentsScreen({
     super.key,
     required this.postId,
     required this.initialCommentCount,
+    this.contentType = 'post', // Default to post for backward compatibility
   });
 
   @override
@@ -42,13 +47,17 @@ class _CommentsScreenState extends State<CommentsScreen> {
   Future<void> _loadComments() async {
     setState(() => _isLoading = true);
     try {
-      print('Loading comments for post: ${widget.postId}');
+      final isReel = widget.contentType == 'reel';
+      final tableName = isReel ? 'video_comments' : 'comments';
+      final columnName = isReel ? 'video_id' : 'post_id';
+
+      print('Loading comments for ${widget.contentType}: ${widget.postId}');
 
       // Fetch comments without join
       final commentsResponse = await Supabase.instance.client
-          .from('comments')
+          .from(tableName)
           .select()
-          .eq('post_id', widget.postId)
+          .eq(columnName, widget.postId)
           .order('created_at', ascending: false);
 
       print('Loaded ${(commentsResponse as List).length} comments');
@@ -113,9 +122,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
       // Show error if table doesn't exist
       if (mounted && e.toString().contains('comments')) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Comments table not set up. Please run the SQL setup in Supabase.',
+              'Comments table not set up for ${widget.contentType}s. Please run the SQL setup in Supabase.',
             ),
             duration: Duration(seconds: 5),
             backgroundColor: Colors.orange,
@@ -139,45 +148,82 @@ class _CommentsScreenState extends State<CommentsScreen> {
     setState(() => _isSubmitting = true);
 
     try {
+      final isReel = widget.contentType == 'reel';
+      final tableName = isReel ? 'video_comments' : 'comments';
+      final columnName = isReel ? 'video_id' : 'post_id';
+
       final commentText = _commentController.text.trim();
       print('Submitting comment: $commentText');
-      print('Post ID: ${widget.postId}');
+      print('${widget.contentType} ID: ${widget.postId}');
       print('User ID: ${user.id}');
 
       // Try to insert comment
       final insertResult =
-          await Supabase.instance.client.from('comments').insert({
-            'post_id': widget.postId,
+          await Supabase.instance.client.from(tableName).insert({
+            columnName: widget.postId,
             'user_id': user.id,
             'content': commentText,
           }).select();
 
       print('Comment inserted successfully: $insertResult');
 
-      // Try to update post comment count
+      // Manually increment the comment count in the videos/posts table
+      // This ensures the count is updated immediately
+      final contentTable = isReel ? 'videos' : 'posts';
+
       try {
-        final currentPost =
+        print('Starting to update comment count in $contentTable table...');
+
+        // Count ACTUAL comments instead of incrementing
+        // This ensures the count always matches reality
+        final response = await Supabase.instance.client
+            .from(tableName)
+            .select()
+            .eq(columnName, widget.postId)
+            .count(CountOption.exact);
+
+        // Extract the INTEGER count from the response
+        final actualCount = response.count;
+
+        print('Actual comment count: $actualCount');
+
+        // Set the count to the actual count
+        final updateResult =
             await Supabase.instance.client
-                .from('posts')
-                .select('comments')
+                .from(contentTable)
+                .update({'comments': actualCount})
                 .eq('id', widget.postId)
-                .single();
+                .select();
 
-        final currentCount = currentPost['comments'] as int? ?? 0;
-
-        await Supabase.instance.client
-            .from('posts')
-            .update({'comments': currentCount + 1})
-            .eq('id', widget.postId);
-      } catch (e) {
-        print('Error updating comment count: $e');
-        // Continue even if count update fails
+        print('Update result: $updateResult');
+        print('✅ Successfully set comment count to $actualCount');
+      } catch (e, stackTrace) {
+        print('❌ ERROR updating comment count: $e');
+        print('Stack trace: $stackTrace');
+        // Don't throw - comment was posted successfully even if count update fails
       }
 
       _commentController.clear();
       print('Reloading comments...');
       await _loadComments();
       print('Comments reloaded. Total: ${_comments.length}');
+
+      // Update ContentProvider so the UI reflects the new comment count
+      // Refresh reels/posts from database to show updated counts
+      if (mounted) {
+        try {
+          final provider = Provider.of<ContentProvider>(context, listen: false);
+          if (isReel) {
+            print('Refreshing reels to show updated count...');
+            await provider.refreshReels();
+          } else {
+            print('Refreshing posts to show updated count...');
+            await provider.refreshData();
+          }
+        } catch (e) {
+          print('Error refreshing data: $e');
+        }
+      }
 
       // Scroll to top to show new comment
       if (_scrollController.hasClients) {
@@ -230,8 +276,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: isDarkMode ? Colors.black : Colors.white,
       appBar: AppBar(
         backgroundColor: isDarkMode ? Colors.black : Colors.white,
@@ -264,10 +312,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
           Expanded(
             child:
                 _isLoading
-                    ? Center(
-                      child: CircularProgressIndicator(
-                        color: isDarkMode ? Colors.white : Colors.black,
-                      ),
+                    ? ListView.builder(
+                      itemCount: 5,
+                      itemBuilder: (context, index) => const CommentSkeleton(),
                     )
                     : _comments.isEmpty
                     ? Center(
@@ -430,7 +477,12 @@ class _CommentsScreenState extends State<CommentsScreen> {
                 ),
               ),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 12,
+              bottom: keyboardHeight > 0 ? 12 : 12,
+            ),
             child: SafeArea(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,

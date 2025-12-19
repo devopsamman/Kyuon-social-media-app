@@ -2,10 +2,34 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../models/post_data.dart';
+import '../models/reel_data.dart';
 import '../providers/theme_provider.dart';
 import '../services/content_provider.dart';
 import 'login_screen.dart';
 import 'edit_profile_screen.dart';
+import 'user_posts_view.dart';
+import 'user_reels_view.dart';
+import '../widgets/skeleton.dart';
+
+// Helper function to generate thumbnail from Cloudinary video URL
+String _generateThumbnailUrl(String videoUrl, String? thumbnailUrl) {
+  // If thumbnail exists and is not empty, use it
+  if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
+    return thumbnailUrl;
+  }
+
+  // Generate thumbnail from Cloudinary video URL
+  if (videoUrl.contains('cloudinary.com')) {
+    // Replace /upload/ with /upload/so_0,f_jpg/ to get first frame as JPEG
+    String thumbnail = videoUrl.replaceAll('/upload/', '/upload/so_0,f_jpg/');
+    // Change extension from .mp4 to .jpg
+    thumbnail = thumbnail.replaceAll('.mp4', '.jpg');
+    return thumbnail;
+  }
+
+  // Fallback to placeholder
+  return 'https://via.placeholder.com/150';
+}
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -18,11 +42,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _profileData;
   List<PostData> _userPosts = [];
+  List<ReelData> _userReels = [];
 
   @override
   void initState() {
     super.initState();
     _fetchProfile();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh profile when returning from other screens
+    // This ensures following count updates after following someone
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _fetchProfile();
+      }
+    });
   }
 
   Future<void> _fetchProfile() async {
@@ -59,10 +96,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
             return postJson;
           }).toList();
 
+      // Fetch user's reels
+      final reelsResponse = await Supabase.instance.client
+          .from('videos')
+          .select()
+          .eq('uploader_id', user.id)
+          .order('created_at', ascending: false);
+
+      // Add profile data to each reel
+      final reelsWithProfile =
+          (reelsResponse as List).map((reelJson) {
+            reelJson['profiles'] = {
+              'username': profileResponse?['username'] ?? 'Unknown',
+              'profile_image_url': profileResponse?['profile_image_url'] ?? '',
+            };
+            return reelJson;
+          }).toList();
+
       setState(() {
         _profileData = profileResponse;
         _userPosts =
             postsWithProfile.map((json) => PostData.fromJson(json)).toList();
+        _userReels =
+            reelsWithProfile.map((json) => ReelData.fromJson(json)).toList();
         _isLoading = false;
       });
     } catch (e) {
@@ -129,14 +185,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Center(
-        child: CircularProgressIndicator(
-          color:
-              Theme.of(context).brightness == Brightness.dark
-                  ? Colors.white
-                  : Colors.black,
-        ),
+    // Only show skeleton if loading AND we don't have profile data yet
+    // This prevents showing skeleton on subsequent navigations
+    if (_isLoading && _profileData == null) {
+      final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+      return Scaffold(
+        backgroundColor: isDarkMode ? Colors.black : Colors.white,
+        body: SafeArea(child: const ProfileSkeleton()),
       );
     }
 
@@ -213,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
       body: DefaultTabController(
-        length: 2,
+        length: 3,
         child: NestedScrollView(
           headerSliverBuilder: (context, _) {
             return [
@@ -230,6 +285,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 unselectedLabelColor: Colors.grey,
                 tabs: [
                   Tab(icon: Icon(Icons.grid_on)),
+                  Tab(icon: Icon(Icons.video_library)),
                   Tab(icon: Icon(Icons.person_pin_outlined)),
                 ],
               ),
@@ -237,6 +293,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: TabBarView(
                   children: [
                     _buildPostsGrid(),
+                    _buildReelsGrid(),
                     const Center(
                       child: Text(
                         'Tagged Posts',
@@ -291,8 +348,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     _buildStatColumn('Posts', _userPosts.length.toString()),
-                    _buildStatColumn('Followers', '0'),
-                    _buildStatColumn('Following', '0'),
+                    _buildStatColumn(
+                      'Followers',
+                      (_profileData?['followers_count'] ?? 0).toString(),
+                    ),
+                    _buildStatColumn(
+                      'Following',
+                      (_profileData?['following_count'] ?? 0).toString(),
+                    ),
                   ],
                 ),
               ),
@@ -420,18 +483,104 @@ class _ProfileScreenState extends State<ProfileScreen> {
       itemCount: _userPosts.length,
       itemBuilder: (context, index) {
         final post = _userPosts[index];
-        return Image.network(
-          post.imageUrl ?? 'https://via.placeholder.com/150',
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
-              child: Icon(
-                Icons.broken_image,
-                color: isDarkMode ? Colors.white : Colors.grey,
+        return GestureDetector(
+          onTap: () {
+            // Navigate to full post view starting at this index
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder:
+                    (context) =>
+                        UserPostsView(posts: _userPosts, initialIndex: index),
               ),
             );
           },
+          child: Image.network(
+            post.imageUrl ?? 'https://via.placeholder.com/150',
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+                child: Icon(
+                  Icons.broken_image,
+                  color: isDarkMode ? Colors.white : Colors.grey,
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReelsGrid() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    if (_userReels.isEmpty) {
+      return Center(
+        child: Text(
+          'No reels yet',
+          style: TextStyle(
+            color: isDarkMode ? Colors.grey : Colors.grey.shade700,
+          ),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: _userReels.length,
+      itemBuilder: (context, index) {
+        final reel = _userReels[index];
+        return GestureDetector(
+          onTap: () {
+            // Navigate to full reel view starting at this index
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder:
+                    (context) =>
+                        UserReelsView(reels: _userReels, initialIndex: index),
+              ),
+            );
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                _generateThumbnailUrl(reel.videoUrl, reel.thumbnailUrl),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+                    child: Icon(
+                      Icons.videocam,
+                      color: isDarkMode ? Colors.white : Colors.grey,
+                      size: 40,
+                    ),
+                  );
+                },
+              ),
+              // Play icon overlay to indicate it's a video
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Icon(
+                  Icons.play_circle_outline,
+                  color: Colors.white.withOpacity(0.9),
+                  size: 24,
+                  shadows: [
+                    Shadow(blurRadius: 4, color: Colors.black.withOpacity(0.5)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
     );

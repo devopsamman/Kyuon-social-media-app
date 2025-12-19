@@ -259,11 +259,90 @@ class SupabaseService {
     }
   }
 
-  Future<void> likePost(String postId, int currentLikes) async {
-    await _client
-        .from('posts')
-        .update({'likes': currentLikes + 1})
-        .eq('id', postId);
+  Future<void> likePost(String postId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      throw Exception('User must be authenticated to like posts');
+    }
+
+    try {
+      // Insert like into post_likes table
+      // Database trigger will automatically update posts.likes count
+      await _client.from('post_likes').insert({
+        'post_id': postId,
+        'user_id': user.id,
+      });
+    } catch (e) {
+      if (e.toString().contains('duplicate key') ||
+          e.toString().contains('unique constraint')) {
+        print('User already liked this post');
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> unlikePost(String postId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      throw Exception('User must be authenticated to unlike posts');
+    }
+
+    try {
+      // Delete like from post_likes table
+      // Database trigger will automatically update posts.likes count
+      await _client
+          .from('post_likes')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', user.id);
+    } catch (e) {
+      print('Error unliking post: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> hasUserLikedPost(String postId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return false;
+
+    try {
+      final result =
+          await _client
+              .from('post_likes')
+              .select()
+              .eq('post_id', postId)
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+      return result != null;
+    } catch (e) {
+      print('Error checking if user liked post: $e');
+      return false;
+    }
+  }
+
+  Future<Set<String>> getUserLikedPosts(List<String> postIds) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return {};
+
+    if (postIds.isEmpty) return {};
+
+    try {
+      final result = await _client
+          .from('post_likes')
+          .select('post_id')
+          .eq('user_id', user.id)
+          .filter('post_id', 'in', '(${postIds.join(',')})');
+
+      return (result as List)
+          .map((item) => item['post_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    } catch (e) {
+      print('Error getting user liked posts: $e');
+      return {};
+    }
   }
 
   Future<void> commentOnPost(String postId, int currentComments) async {
@@ -271,6 +350,100 @@ class SupabaseService {
         .from('posts')
         .update({'comments': currentComments + 1})
         .eq('id', postId);
+  }
+
+  Future<void> likeReel(String reelId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      throw Exception('User must be authenticated to like reels');
+    }
+
+    try {
+      // Insert like into video_likes table
+      // Database trigger will automatically update videos.likes count
+      await _client.from('video_likes').insert({
+        'video_id': reelId,
+        'user_id': user.id,
+      });
+    } catch (e) {
+      // If the error is about duplicate key, the user already liked this
+      if (e.toString().contains('duplicate key') ||
+          e.toString().contains('unique constraint')) {
+        print('User already liked this reel');
+        return; // Silently ignore
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> unlikeReel(String reelId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      throw Exception('User must be authenticated to unlike reels');
+    }
+
+    try {
+      // Delete like from video_likes table
+      // Database trigger will automatically update videos.likes count
+      await _client
+          .from('video_likes')
+          .delete()
+          .eq('video_id', reelId)
+          .eq('user_id', user.id);
+    } catch (e) {
+      print('Error unliking reel: $e');
+      rethrow;
+    }
+  }
+
+  Future<bool> hasUserLikedReel(String reelId) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return false;
+
+    try {
+      final result =
+          await _client
+              .from('video_likes')
+              .select()
+              .eq('video_id', reelId)
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+      return result != null;
+    } catch (e) {
+      print('Error checking if user liked reel: $e');
+      return false;
+    }
+  }
+
+  Future<Set<String>> getUserLikedReels(List<String> reelIds) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return {};
+
+    if (reelIds.isEmpty) return {};
+
+    try {
+      final result = await _client
+          .from('video_likes')
+          .select('video_id')
+          .eq('user_id', user.id)
+          .filter('video_id', 'in', '(${reelIds.join(',')})');
+
+      return (result as List)
+          .map((item) => item['video_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    } catch (e) {
+      print('Error getting user liked reels: $e');
+      return {};
+    }
+  }
+
+  Future<void> commentOnReel(String reelId, int currentComments) async {
+    await _client
+        .from('videos')
+        .update({'comments': currentComments + 1})
+        .eq('id', reelId);
   }
 
   Future<void> createPost(String body, String? imageUrl) async {
@@ -384,10 +557,20 @@ class SupabaseService {
       throw Exception('Videos must be uploaded to Cloudinary');
     }
 
+    // Generate thumbnail URL from video URL
+    // Cloudinary allows getting video thumbnail by modifying the URL
+    String thumbnailUrl = videoUrl
+        .replaceAll('/upload/', '/upload/so_0,f_jpg/')
+        .replaceAll('.mp4', '.jpg');
+
     print('createReel: Creating reel for user: $userId');
+    print('createReel: Video URL: $videoUrl');
+    print('createReel: Generated thumbnail URL: $thumbnailUrl');
+
     await _client.from('videos').insert({
       'uploader_id': userId,
       'video_url': videoUrl,
+      'thumbnail_url': thumbnailUrl, // Add generated thumbnail
       'title': caption, // Mapping caption to title as 'videos' table has title
       'description': caption,
     });

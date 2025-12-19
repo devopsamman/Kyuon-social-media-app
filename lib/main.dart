@@ -11,11 +11,16 @@ import 'services/content_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/create_post_screen.dart';
 import 'screens/create_story_screen.dart';
+import 'screens/story_viewer_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'screens/comments_screen.dart';
 import 'services/supabase_service.dart';
+import 'widgets/skeleton.dart';
+import 'screens/other_user_profile_screen.dart';
+import 'screens/messages_screen.dart';
+import 'services/messaging_service.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -158,7 +163,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: Skeleton.circle(size: 40)));
     }
 
     if (!_isAuthenticated) {
@@ -176,14 +181,21 @@ class _AuthWrapperState extends State<AuthWrapper> {
 }
 
 class MainNavigationScaffold extends StatefulWidget {
-  const MainNavigationScaffold({super.key});
+  final int initialIndex;
+  const MainNavigationScaffold({super.key, this.initialIndex = 0});
 
   @override
   State<MainNavigationScaffold> createState() => _MainNavigationScaffoldState();
 }
 
 class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
-  int _currentIndex = 0;
+  late int _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex;
+  }
 
   final List<Widget> _pages = [
     const HomeFeedScreen(),
@@ -215,7 +227,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
 
       // If upload was successful (result == true), refresh the feed and go to home
       if (result == true && mounted) {
-        setState(() => _currentIndex = 0); // Switch to home tab
+        setState(() => _selectedIndex = 0); // Switch to home tab
         // Refresh the content provider
         if (mounted) {
           await Provider.of<ContentProvider>(
@@ -225,7 +237,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
         }
       }
     } else {
-      setState(() => _currentIndex = index);
+      setState(() => _selectedIndex = index);
     }
   }
 
@@ -234,7 +246,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      body: _pages[_currentIndex],
+      body: _pages[_selectedIndex],
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -250,7 +262,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
           ],
         ),
         child: BottomNavigationBar(
-          currentIndex: _currentIndex,
+          currentIndex: _selectedIndex,
           selectedItemColor: isDarkMode ? Colors.white : Colors.black,
           unselectedItemColor: Colors.grey,
           showSelectedLabels: false,
@@ -263,10 +275,10 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
             return BottomNavigationBarItem(
               icon: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: EdgeInsets.all(_currentIndex == index ? 8 : 4),
+                padding: EdgeInsets.all(_selectedIndex == index ? 8 : 4),
                 decoration: BoxDecoration(
                   color:
-                      _currentIndex == index
+                      _selectedIndex == index
                           ? (isDarkMode
                               ? Colors.white.withOpacity(0.1)
                               : Colors.black.withOpacity(0.05))
@@ -275,7 +287,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
                 ),
                 child: _NavIcon(
                   assetPath: _navIcons[index],
-                  isActive: _currentIndex == index,
+                  isActive: _selectedIndex == index,
                 ),
               ),
               label: '',
@@ -317,7 +329,10 @@ class HomeFeedScreen extends StatelessWidget {
     return Consumer<ContentProvider>(
       builder: (context, contentProvider, child) {
         if (contentProvider.isLoading) {
-          return const Center(child: CircularProgressIndicator());
+          return ListView.builder(
+            itemCount: 3,
+            itemBuilder: (context, index) => const PostSkeleton(),
+          );
         }
         return SafeArea(
           child: RefreshIndicator(
@@ -336,14 +351,59 @@ class HomeFeedScreen extends StatelessWidget {
                       children: [
                         Image.asset('assets/images/kyuonlogo.png', width: 80),
                         const Spacer(),
-                        SvgPicture.asset(
-                          'assets/icons/More.svg',
-                          width: 24,
-                          height: 24,
-                          colorFilter: const ColorFilter.mode(
-                            Colors.black,
-                            BlendMode.srcIn,
-                          ),
+                        FutureBuilder<int>(
+                          future: MessagingService().getTotalUnreadCount(),
+                          builder: (context, snapshot) {
+                            final unreadCount = snapshot.data ?? 0;
+                            return IconButton(
+                              icon: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  const Icon(
+                                    Icons.send,
+                                    size: 24,
+                                    color: Colors.black,
+                                  ),
+                                  if (unreadCount > 0)
+                                    Positioned(
+                                      right: -2,
+                                      top: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 16,
+                                          minHeight: 16,
+                                        ),
+                                        child: Text(
+                                          unreadCount > 99
+                                              ? '99+'
+                                              : '$unreadCount',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) => const MessagesScreen(),
+                                  ),
+                                );
+                              },
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -464,8 +524,11 @@ class StoryBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if user has an active story
+    final hasStory = data.imageUrl != null && data.imageUrl!.isNotEmpty;
+
     final gradient =
-        data.isOwn
+        (data.isOwn && hasStory)
             ? const LinearGradient(
               colors: [Color(0xFF833AB4), Color(0xFFFF2E63), Color(0xFFFFC837)],
               begin: Alignment.topLeft,
@@ -477,26 +540,27 @@ class StoryBubble extends StatelessWidget {
               end: Alignment.bottomRight,
             );
 
-    return GestureDetector(
-      onTap: () {
-        if (data.isOwn) {
-          // Open story creation screen for own story
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const CreateStoryScreen()),
-          );
-        } else {
-          // TODO: Show story viewer for other users' stories
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('View ${data.username}\'s story')),
-          );
-        }
-      },
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              Container(
+    return Column(
+      children: [
+        Stack(
+          children: [
+            // Story circle with tap detection
+            GestureDetector(
+              onTap: () {
+                if (data.isOwn) {
+                  if (hasStory) {
+                    // View own story if it exists
+                    _viewStory(context, data);
+                  } else {
+                    // Create new story if no story exists
+                    _openCreateStory(context);
+                  }
+                } else {
+                  // View other users' stories
+                  _viewStory(context, data);
+                }
+              },
+              child: Container(
                 width: 72,
                 height: 72,
                 padding: const EdgeInsets.all(3),
@@ -504,36 +568,41 @@ class StoryBubble extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: gradient,
                 ),
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
+                child: Container(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.white,
+                    border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: ClipOval(
-                      child: Image.network(
-                        data.avatarUrl.isNotEmpty
-                            ? data.avatarUrl
-                            : 'https://i.pravatar.cc/150',
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Image.network(
-                            'https://i.pravatar.cc/150',
-                            fit: BoxFit.cover,
-                          );
-                        },
-                      ),
+                  child: ClipOval(
+                    child: Image.network(
+                      data.avatarUrl.isNotEmpty
+                          ? data.avatarUrl
+                          : 'https://i.pravatar.cc/150',
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey.shade300,
+                          child: Icon(
+                            Icons.person,
+                            color: Colors.grey.shade600,
+                            size: 36,
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
               ),
-              // Add "+" icon for own story if no image
-              if (data.isOwn &&
-                  (data.imageUrl == null || data.imageUrl!.isEmpty))
-                Positioned(
-                  bottom: 0,
-                  right: 0,
+            ),
+
+            // Plus button for own story (always visible for easy access)
+            if (data.isOwn)
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: () => _openCreateStory(context),
                   child: Container(
                     width: 24,
                     height: 24,
@@ -541,24 +610,59 @@ class StoryBubble extends StatelessWidget {
                       color: Colors.blue,
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: const Icon(Icons.add, color: Colors.white, size: 16),
                   ),
                 ),
-            ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: 72,
+          child: Text(
+            data.username,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: 72,
-            child: Text(
-              data.username,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  void _openCreateStory(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const CreateStoryScreen()),
+    );
+  }
+
+  void _viewStory(BuildContext context, StoryData storyData) {
+    if (storyData.imageUrl == null || storyData.imageUrl!.isEmpty) {
+      // No story to view
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${storyData.username} has no story'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // Navigate to story viewer
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StoryViewerScreen(story: storyData),
       ),
     );
   }
@@ -583,6 +687,14 @@ class _PostCardState extends State<PostCard>
   @override
   void initState() {
     super.initState();
+
+    // Initialize liked state from provider
+    final provider = Provider.of<ContentProvider>(context, listen: false);
+    _isLiked = provider.likedPosts.contains(widget.data.id);
+    if (_isLiked) {
+      _likedPosts.add(widget.data.id);
+    }
+
     _likeAnimationController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
@@ -627,20 +739,23 @@ class _PostCardState extends State<PostCard>
   }
 
   void _handleLikeButton() {
-    if (_likedPosts.contains(widget.data.id)) {
-      // Already liked
-      return;
+    final provider = Provider.of<ContentProvider>(context, listen: false);
+
+    if (provider.likedPosts.contains(widget.data.id)) {
+      // Already liked, so unlike it
+      setState(() {
+        _isLiked = false;
+        _likedPosts.remove(widget.data.id);
+      });
+      provider.unlikePost(widget.data.id);
+    } else {
+      // Not liked yet, so like it
+      setState(() {
+        _isLiked = true;
+        _likedPosts.add(widget.data.id);
+      });
+      provider.likePost(widget.data.id);
     }
-
-    setState(() {
-      _isLiked = true;
-      _likedPosts.add(widget.data.id);
-    });
-
-    Provider.of<ContentProvider>(
-      context,
-      listen: false,
-    ).likePost(widget.data.id);
   }
 
   void _handleComment() {
@@ -673,172 +788,227 @@ class _PostCardState extends State<PostCard>
     }
   }
 
+  void _navigateToProfile(String postId) async {
+    try {
+      // Get the post from database to find user_id
+      final response =
+          await Supabase.instance.client
+              .from('posts')
+              .select('user_id')
+              .eq('id', postId)
+              .single();
+
+      final userId = response['user_id'];
+      final currentUser = Supabase.instance.client.auth.currentUser;
+
+      if (userId == null) return;
+
+      if (mounted) {
+        if (currentUser != null && userId == currentUser.id) {
+          // Navigate to MainNavigationScaffold with Profile tab selected
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => const MainNavigationScaffold(initialIndex: 4),
+            ),
+            (route) => false,
+          );
+        } else {
+          // Navigate to other user's profile
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OtherUserProfileScreen(userId: userId),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error navigating to profile: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Consumer<ContentProvider>(
+      builder: (context, provider, child) {
+        // Find the latest version of this post from provider
+        final updatedPost = provider.posts.firstWhere(
+          (p) => p.id == widget.data.id,
+          orElse: () => widget.data, // Fallback to original if not found
+        );
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                backgroundImage: NetworkImage(
-                  widget.data.avatarUrl.isNotEmpty
-                      ? widget.data.avatarUrl
-                      : 'https://i.pravatar.cc/150',
-                ),
-                onBackgroundImageError: (exception, stackTrace) {
-                  // Handle error silently
-                },
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              GestureDetector(
+                onTap: () => _navigateToProfile(widget.data.id),
+                child: Row(
                   children: [
-                    Text(
-                      widget.data.username,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                    CircleAvatar(
+                      backgroundImage: NetworkImage(
+                        updatedPost.avatarUrl.isNotEmpty
+                            ? updatedPost.avatarUrl
+                            : 'https://i.pravatar.cc/150',
+                      ),
+                      onBackgroundImageError: (exception, stackTrace) {
+                        // Handle error silently
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            updatedPost.username,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            updatedPost.timeAgo,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    Text(
-                      widget.data.timeAgo,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
+                    SvgPicture.asset(
+                      'assets/icons/More-circle.svg',
+                      width: 24,
+                      height: 24,
+                      colorFilter: const ColorFilter.mode(
+                        Colors.black,
+                        BlendMode.srcIn,
                       ),
                     ),
                   ],
                 ),
               ),
-              SvgPicture.asset(
-                'assets/icons/More-circle.svg',
-                width: 24,
-                height: 24,
-                colorFilter: const ColorFilter.mode(
-                  Colors.black,
-                  BlendMode.srcIn,
-                ),
+              const SizedBox(height: 12),
+              Text(
+                updatedPost.body,
+                style: const TextStyle(fontSize: 15, height: 1.4),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            widget.data.body,
-            style: const TextStyle(fontSize: 15, height: 1.4),
-          ),
-          if (widget.data.imageUrl != null) ...[
-            const SizedBox(height: 12),
-            GestureDetector(
-              onDoubleTap: _handleDoubleTap,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: AspectRatio(
-                      aspectRatio: 4 / 5,
-                      child: Image.network(
-                        widget.data.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey[200],
-                            child: const Icon(Icons.broken_image, size: 50),
-                          );
-                        },
+              if (updatedPost.imageUrl != null) ...[
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onDoubleTap: _handleDoubleTap,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: AspectRatio(
+                          aspectRatio: 4 / 5,
+                          child: Image.network(
+                            updatedPost.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.grey[200],
+                                child: const Icon(Icons.broken_image, size: 50),
+                              );
+                            },
+                          ),
+                        ),
                       ),
+                      // Like animation overlay
+                      ScaleTransition(
+                        scale: _likeAnimation,
+                        child: Icon(
+                          Icons.favorite,
+                          color: Colors.white.withOpacity(0.9),
+                          size: 100,
+                          shadows: [
+                            Shadow(
+                              blurRadius: 10,
+                              color: Colors.black.withOpacity(0.3),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: _handleLikeButton,
+                    child: _PostActionIcon(
+                      assetPath: 'assets/icons/Like.svg',
+                      isActive:
+                          _isLiked || _likedPosts.contains(widget.data.id),
                     ),
                   ),
-                  // Like animation overlay
-                  ScaleTransition(
-                    scale: _likeAnimation,
-                    child: Icon(
-                      Icons.favorite,
-                      color: Colors.white.withOpacity(0.9),
-                      size: 100,
-                      shadows: [
-                        Shadow(
-                          blurRadius: 10,
-                          color: Colors.black.withOpacity(0.3),
-                        ),
-                      ],
+                  const SizedBox(width: 18),
+                  GestureDetector(
+                    onTap: _handleComment,
+                    child: const _PostActionIcon(
+                      assetPath: 'assets/icons/Comment.svg',
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  const _PostActionIcon(assetPath: 'assets/icons/Repost.svg'),
+                  const SizedBox(width: 18),
+                  GestureDetector(
+                    onTap: _handleShare,
+                    child: const _PostActionIcon(
+                      assetPath: 'assets/icons/Share.svg',
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: _handleLikeButton,
-                child: _PostActionIcon(
-                  assetPath: 'assets/icons/Like.svg',
-                  isActive: _isLiked || _likedPosts.contains(widget.data.id),
-                ),
+              const SizedBox(height: 10),
+              Text(
+                '${updatedPost.likes} likes · ${updatedPost.replies} comments',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
-              const SizedBox(width: 18),
-              GestureDetector(
-                onTap: _handleComment,
-                child: const _PostActionIcon(
-                  assetPath: 'assets/icons/Comment.svg',
-                ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  SvgPicture.asset(
+                    'assets/icons/GIF.svg',
+                    width: 30,
+                    colorFilter: const ColorFilter.mode(
+                      Colors.grey,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SvgPicture.asset(
+                    'assets/icons/Image.svg',
+                    width: 30,
+                    colorFilter: const ColorFilter.mode(
+                      Colors.grey,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SvgPicture.asset(
+                    'assets/icons/Poll.svg',
+                    width: 30,
+                    colorFilter: const ColorFilter.mode(
+                      Colors.grey,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 18),
-              const _PostActionIcon(assetPath: 'assets/icons/Repost.svg'),
-              const SizedBox(width: 18),
-              GestureDetector(
-                onTap: _handleShare,
-                child: const _PostActionIcon(
-                  assetPath: 'assets/icons/Share.svg',
-                ),
-              ),
+              const Divider(height: 32),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            '${widget.data.likes} likes · ${widget.data.replies} comments',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              SvgPicture.asset(
-                'assets/icons/GIF.svg',
-                width: 30,
-                colorFilter: const ColorFilter.mode(
-                  Colors.grey,
-                  BlendMode.srcIn,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SvgPicture.asset(
-                'assets/icons/Image.svg',
-                width: 30,
-                colorFilter: const ColorFilter.mode(
-                  Colors.grey,
-                  BlendMode.srcIn,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SvgPicture.asset(
-                'assets/icons/Poll.svg',
-                width: 30,
-                colorFilter: const ColorFilter.mode(
-                  Colors.grey,
-                  BlendMode.srcIn,
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 32),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -877,11 +1047,7 @@ class ReelsScreen extends StatelessWidget {
           child: CustomScrollView(
             slivers: [
               if (contentProvider.isLoading)
-                const SliverFillRemaining(
-                  child: Center(
-                    child: CircularProgressIndicator(color: Colors.white),
-                  ),
-                )
+                const SliverFillRemaining(child: ReelSkeleton())
               else if (contentProvider.reels.isEmpty)
                 SliverFillRemaining(
                   child: Center(
@@ -944,17 +1110,31 @@ class ReelsPageView extends StatefulWidget {
   State<ReelsPageView> createState() => _ReelsPageViewState();
 }
 
-class _ReelsPageViewState extends State<ReelsPageView> {
+class _ReelsPageViewState extends State<ReelsPageView>
+    with SingleTickerProviderStateMixin {
   final PageController _pageController = PageController();
   late final List<VideoPlayerController?> _controllers;
-  int _currentIndex = 0;
+  int _selectedIndex = 0;
   final Map<int, bool> _initializedControllers = {};
+  late AnimationController _likeAnimationController;
+  late Animation<double> _likeAnimation;
 
   @override
   void initState() {
     super.initState();
     _controllers = List.generate(widget.reels.length, (index) => null);
     _initializeController(0); // Initialize first video immediately
+
+    _likeAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+    _likeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _likeAnimationController,
+        curve: Curves.elasticOut,
+      ),
+    );
   }
 
   void _initializeController(int index) {
@@ -982,7 +1162,7 @@ class _ReelsPageViewState extends State<ReelsPageView> {
               _initializedControllers[index] = true;
             });
             controller.setLooping(true);
-            if (index == _currentIndex) {
+            if (index == _selectedIndex) {
               controller.play();
               print('Playing video at index $index');
             }
@@ -1025,12 +1205,126 @@ class _ReelsPageViewState extends State<ReelsPageView> {
     }
   }
 
+  void _handleDoubleTap(ReelData reel) {
+    final provider = Provider.of<ContentProvider>(context, listen: false);
+
+    if (provider.likedReels.contains(reel.id)) {
+      // Already liked, don't like again
+      return;
+    }
+
+    // Show heart animation
+    _likeAnimationController.forward().then((_) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _likeAnimationController.reverse();
+        }
+      });
+    });
+
+    provider.likeReel(reel.id);
+  }
+
+  void _handleLikeButton(ReelData reel) {
+    final provider = Provider.of<ContentProvider>(context, listen: false);
+
+    if (provider.likedReels.contains(reel.id)) {
+      // Already liked, so unlike it
+      provider.unlikeReel(reel.id);
+    } else {
+      // Not liked yet, so like it
+      // Show heart animation just like double tap
+      _likeAnimationController.forward().then((_) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            _likeAnimationController.reverse();
+          }
+        });
+      });
+
+      provider.likeReel(reel.id);
+    }
+  }
+
+  void _handleComment(ReelData reel) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder:
+            (context) => CommentsScreen(
+              postId: reel.id,
+              initialCommentCount: reel.comments,
+              contentType: 'reel', // Specify this is a reel comment
+            ),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
+  void _handleShare(ReelData reel) async {
+    final reelUrl = 'https://kyuonapp.com/reel/${reel.id}';
+    final text =
+        '${reel.username}: ${reel.caption}\n\nCheck out this reel on Kyuon!\n$reelUrl';
+
+    try {
+      await Share.share(text, subject: 'Check out this reel!');
+    } catch (e) {
+      print('Error sharing: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to share: $e')));
+      }
+    }
+  }
+
+  void _navigateToProfile(String reelId) async {
+    try {
+      // Get the reel from database to find uploader_id
+      final response =
+          await Supabase.instance.client
+              .from('videos')
+              .select('uploader_id')
+              .eq('id', reelId)
+              .single();
+
+      final userId = response['uploader_id'];
+      final currentUser = Supabase.instance.client.auth.currentUser;
+
+      if (userId == null) return;
+
+      if (mounted) {
+        if (currentUser != null && userId == currentUser.id) {
+          // Navigate to MainNavigationScaffold with Profile tab selected
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => const MainNavigationScaffold(initialIndex: 4),
+            ),
+            (route) => false,
+          );
+        } else {
+          // Navigate to other user's profile
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OtherUserProfileScreen(userId: userId),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error navigating to profile: $e');
+    }
+  }
+
   @override
   void dispose() {
     for (final controller in _controllers) {
       controller?.dispose();
     }
     _pageController.dispose();
+    _likeAnimationController.dispose();
     super.dispose();
   }
 
@@ -1043,12 +1337,15 @@ class _ReelsPageViewState extends State<ReelsPageView> {
         scrollDirection: Axis.vertical,
         itemCount: widget.reels.length,
         onPageChanged: (index) {
-          setState(() => _currentIndex = index);
+          setState(() => _selectedIndex = index);
           _playController(index);
         },
         itemBuilder: (context, index) {
           final controller = _controllers[index];
-          final reel = widget.reels[index];
+          final provider = Provider.of<ContentProvider>(context);
+          // Get reel from provider to ensure we have latest data
+          final reel = provider.reels[index];
+          final isLiked = provider.likedReels.contains(reel.id);
 
           return Stack(
             fit: StackFit.expand,
@@ -1063,51 +1360,38 @@ class _ReelsPageViewState extends State<ReelsPageView> {
                       controller.play();
                     }
                   },
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: controller.value.size.width,
-                      height: controller.value.size.height,
-                      child: VideoPlayer(controller),
-                    ),
+                  onDoubleTap: () => _handleDoubleTap(reel),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: controller.value.size.width,
+                          height: controller.value.size.height,
+                          child: VideoPlayer(controller),
+                        ),
+                      ),
+                      // Like animation overlay
+                      ScaleTransition(
+                        scale: _likeAnimation,
+                        child: Icon(
+                          Icons.favorite,
+                          color: Colors.white.withOpacity(0.9),
+                          size: 100,
+                          shadows: [
+                            Shadow(
+                              blurRadius: 10,
+                              color: Colors.black.withOpacity(0.3),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 )
               else
-                Container(
-                  color: Colors.black,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const CircularProgressIndicator(color: Colors.white),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Loading video...',
-                          style: TextStyle(color: Colors.white70, fontSize: 14),
-                        ),
-                        if (reel.videoUrl.isEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'No video URL',
-                            style: TextStyle(
-                              color: Colors.red[300],
-                              fontSize: 12,
-                            ),
-                          ),
-                        ] else ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Tap to play/pause',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
+                const ReelSkeleton(),
               Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -1147,12 +1431,15 @@ class _ReelsPageViewState extends State<ReelsPageView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      '@${reel.username}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                    GestureDetector(
+                      onTap: () => _navigateToProfile(reel.id),
+                      child: Text(
+                        '@${reel.username}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1172,17 +1459,29 @@ class _ReelsPageViewState extends State<ReelsPageView> {
                 right: 16,
                 child: Column(
                   children: [
-                    _ReelActionIcon(
-                      assetPath: 'assets/icons/Like.svg',
-                      label: _formatLikes(reel.likes),
+                    GestureDetector(
+                      onTap: () => _handleLikeButton(reel),
+                      child: _ReelActionIcon(
+                        assetPath: 'assets/icons/Like.svg',
+                        label: _formatLikes(reel.likes),
+                        isActive: isLiked,
+                      ),
                     ),
                     const SizedBox(height: 18),
-                    _ReelActionIcon(
-                      assetPath: 'assets/icons/Comment.svg',
-                      label: '${reel.comments}',
+                    GestureDetector(
+                      onTap: () => _handleComment(reel),
+                      child: _ReelActionIcon(
+                        assetPath: 'assets/icons/Comment.svg',
+                        label: '${reel.comments}',
+                      ),
                     ),
                     const SizedBox(height: 18),
-                    _ReelActionIcon(assetPath: 'assets/icons/Share.svg'),
+                    GestureDetector(
+                      onTap: () => _handleShare(reel),
+                      child: _ReelActionIcon(
+                        assetPath: 'assets/icons/Share.svg',
+                      ),
+                    ),
                     const SizedBox(height: 18),
                     _ReelActionIcon(assetPath: 'assets/icons/More-circle.svg'),
                   ],
@@ -1195,7 +1494,7 @@ class _ReelsPageViewState extends State<ReelsPageView> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(widget.reels.length, (dotIndex) {
-                    final isActive = dotIndex == _currentIndex;
+                    final isActive = dotIndex == _selectedIndex;
                     return AnimatedContainer(
                       duration: const Duration(milliseconds: 250),
                       margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -1221,10 +1520,15 @@ class _ReelsPageViewState extends State<ReelsPageView> {
 }
 
 class _ReelActionIcon extends StatelessWidget {
-  const _ReelActionIcon({required this.assetPath, this.label});
+  const _ReelActionIcon({
+    required this.assetPath,
+    this.label,
+    this.isActive = false,
+  });
 
   final String assetPath;
   final String? label;
+  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -1233,7 +1537,10 @@ class _ReelActionIcon extends StatelessWidget {
         SvgPicture.asset(
           assetPath,
           width: 28,
-          colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+          colorFilter: ColorFilter.mode(
+            isActive ? Colors.red : Colors.white,
+            BlendMode.srcIn,
+          ),
         ),
         if (label != null) ...[
           const SizedBox(height: 4),
