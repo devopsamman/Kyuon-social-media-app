@@ -146,13 +146,21 @@ class SupabaseService {
 
   Future<List<StoryData>> getStories() async {
     try {
+      // Calculate the timestamp for 24 hours ago
+      final twentyFourHoursAgo = DateTime.now().subtract(
+        const Duration(hours: 24),
+      );
+
       final response = await _client
           .from('stories')
           .select('*') // No join needed as user_name/avatar are in table
-          // .gt('expires_at', DateTime.now().toIso8601String()) // 'stories' table doesn't have expires_at in schema
+          .gte(
+            'created_at',
+            twentyFourHoursAgo.toIso8601String(),
+          ) // Only fetch stories from last 24 hours
           .order('created_at', ascending: false);
 
-      print('Fetched ${(response as List).length} stories');
+      print('Fetched ${(response as List).length} stories (last 24 hours)');
       final currentUserId = _client.auth.currentUser?.id;
 
       return (response as List).map((json) {

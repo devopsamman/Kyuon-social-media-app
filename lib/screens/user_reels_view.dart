@@ -7,6 +7,9 @@ import '../models/reel_data.dart';
 import '../services/content_provider.dart';
 import '../screens/comments_screen.dart';
 import '../widgets/skeleton.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../main.dart';
+import 'other_user_profile_screen.dart';
 
 // Displays user's reels in vertical video player starting from initial index
 class UserReelsView extends StatefulWidget {
@@ -314,12 +317,27 @@ class _UserReelsViewState extends State<UserReelsView>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      '@${reel.username}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                    GestureDetector(
+                      onTap: () {
+                        // Navigate to profile tab
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) => const MainNavigationScaffold(
+                                  initialIndex: 4,
+                                ),
+                          ),
+                          (route) => false,
+                        );
+                      },
+                      child: Text(
+                        '@${reel.username}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),

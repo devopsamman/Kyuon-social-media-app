@@ -7,6 +7,7 @@ import '../services/content_provider.dart';
 import '../services/messaging_service.dart';
 import 'user_posts_view.dart';
 import 'user_reels_view.dart';
+import 'followers_list_screen.dart';
 import 'chat_screen.dart';
 
 // Screen to view other users' profiles
@@ -366,18 +367,50 @@ class _OtherUserProfileScreenState extends State<OtherUserProfileScreen>
                   children: [
                     _buildStatColumn(
                       'Posts',
-                      _userPosts.length.toString(),
+                      (_userPosts.length + _userReels.length).toString(),
                       isDarkMode,
                     ),
-                    _buildStatColumn(
-                      'Followers',
-                      (_profileData?['followers_count'] ?? 0).toString(),
-                      isDarkMode,
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) => FollowersListScreen(
+                                  userId: widget.userId,
+                                  isFollowersList: true,
+                                  isOwnProfile:
+                                      false, // Not own profile, so no buttons
+                                ),
+                          ),
+                        );
+                      },
+                      child: _buildStatColumn(
+                        'Followers',
+                        (_profileData?['followers_count'] ?? 0).toString(),
+                        isDarkMode,
+                      ),
                     ),
-                    _buildStatColumn(
-                      'Following',
-                      (_profileData?['following_count'] ?? 0).toString(),
-                      isDarkMode,
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) => FollowersListScreen(
+                                  userId: widget.userId,
+                                  isFollowersList: false,
+                                  isOwnProfile:
+                                      false, // Not own profile, so no buttons
+                                ),
+                          ),
+                        );
+                      },
+                      child: _buildStatColumn(
+                        'Following',
+                        (_profileData?['following_count'] ?? 0).toString(),
+                        isDarkMode,
+                      ),
                     ),
                   ],
                 ),

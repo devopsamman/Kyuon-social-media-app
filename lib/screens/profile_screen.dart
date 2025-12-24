@@ -9,6 +9,7 @@ import 'login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'user_posts_view.dart';
 import 'user_reels_view.dart';
+import 'followers_list_screen.dart';
 import '../widgets/skeleton.dart';
 
 // Helper function to generate thumbnail from Cloudinary video URL
@@ -347,14 +348,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildStatColumn('Posts', _userPosts.length.toString()),
                     _buildStatColumn(
-                      'Followers',
-                      (_profileData?['followers_count'] ?? 0).toString(),
+                      'Posts',
+                      (_userPosts.length + _userReels.length).toString(),
                     ),
-                    _buildStatColumn(
-                      'Following',
-                      (_profileData?['following_count'] ?? 0).toString(),
+                    GestureDetector(
+                      onTap: () {
+                        final user = Supabase.instance.client.auth.currentUser;
+                        if (user != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder:
+                                  (context) => FollowersListScreen(
+                                    userId: user.id,
+                                    isFollowersList: true,
+                                    isOwnProfile: true,
+                                  ),
+                            ),
+                          ).then(
+                            (_) => _fetchProfile(),
+                          ); // Refresh after returning
+                        }
+                      },
+                      child: _buildStatColumn(
+                        'Followers',
+                        (_profileData?['followers_count'] ?? 0).toString(),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        final user = Supabase.instance.client.auth.currentUser;
+                        if (user != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder:
+                                  (context) => FollowersListScreen(
+                                    userId: user.id,
+                                    isFollowersList: false,
+                                    isOwnProfile: true,
+                                  ),
+                            ),
+                          ).then(
+                            (_) => _fetchProfile(),
+                          ); // Refresh after returning
+                        }
+                      },
+                      child: _buildStatColumn(
+                        'Following',
+                        (_profileData?['following_count'] ?? 0).toString(),
+                      ),
                     ),
                   ],
                 ),

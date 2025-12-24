@@ -21,6 +21,7 @@ import 'widgets/skeleton.dart';
 import 'screens/other_user_profile_screen.dart';
 import 'screens/messages_screen.dart';
 import 'services/messaging_service.dart';
+import 'screens/search_screen.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -199,7 +200,7 @@ class _MainNavigationScaffoldState extends State<MainNavigationScaffold> {
 
   final List<Widget> _pages = [
     const HomeFeedScreen(),
-    const PlaceholderScreen(label: 'Search'),
+    const SearchScreen(),
     const PlaceholderScreen(label: 'Create'), // Placeholder for create
     const ReelsScreen(),
     const ProfileScreen(),
@@ -359,10 +360,14 @@ class HomeFeedScreen extends StatelessWidget {
                               icon: Stack(
                                 clipBehavior: Clip.none,
                                 children: [
-                                  const Icon(
-                                    Icons.send,
-                                    size: 24,
-                                    color: Colors.black,
+                                  SvgPicture.asset(
+                                    'assets/icons/Share.svg',
+                                    width: 24,
+                                    height: 24,
+                                    colorFilter: const ColorFilter.mode(
+                                      Colors.black,
+                                      BlendMode.srcIn,
+                                    ),
                                   ),
                                   if (unreadCount > 0)
                                     Positioned(

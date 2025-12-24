@@ -209,27 +209,105 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _formatMessageTime(DateTime timestamp) {
-    // Convert UTC timestamp to IST (Indian Standard Time - UTC+5:30)
-    final istTimestamp =
-        timestamp.toLocal(); // Converts to device's local time (IST)
+    // Convert UTC timestamp to local time (IST)
+    final istTimestamp = timestamp.toLocal();
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
     final messageDate = DateTime(
       istTimestamp.year,
       istTimestamp.month,
       istTimestamp.day,
     );
 
+    // Format time as HH:MM
+    final timeStr =
+        '${istTimestamp.hour.toString().padLeft(2, '0')}:${istTimestamp.minute.toString().padLeft(2, '0')}';
+
+    // Today - show only time
     if (messageDate == today) {
-      // Today - show time only in IST
-      return '${istTimestamp.hour.toString().padLeft(2, '0')}:${istTimestamp.minute.toString().padLeft(2, '0')}';
-    } else if (messageDate == today.subtract(const Duration(days: 1))) {
-      // Yesterday - show time in IST
-      return 'Yesterday ${istTimestamp.hour.toString().padLeft(2, '0')}:${istTimestamp.minute.toString().padLeft(2, '0')}';
+      return timeStr;
+    }
+
+    // Yesterday - show "Yesterday" + time
+    if (messageDate == yesterday) {
+      return 'Yesterday $timeStr';
+    }
+
+    // Check if within current week (before yesterday)
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
+    if (messageDate.isAfter(weekStart.subtract(const Duration(days: 1))) &&
+        messageDate.isBefore(yesterday)) {
+      // Show day name + time
+      final dayNames = [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ];
+      final dayName = dayNames[messageDate.weekday - 1];
+      return '$dayName $timeStr';
+    }
+
+    // Check if same year
+    if (istTimestamp.year == now.year) {
+      // Check if same month
+      if (istTimestamp.month == now.month) {
+        // Same month - show date + time (e.g., "15 Dec 10:30")
+        final monthNames = [
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
+        ];
+        return '${istTimestamp.day} ${monthNames[istTimestamp.month - 1]} $timeStr';
+      } else {
+        // Different month - show DD-MMM + time (e.g., "15-Nov 10:30")
+        final monthNames = [
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
+        ];
+        return '${istTimestamp.day}-${monthNames[istTimestamp.month - 1]} $timeStr';
+      }
     } else {
-      // Older - show date
-      return '${istTimestamp.day}/${istTimestamp.month}/${istTimestamp.year}';
+      // Different year - show DD-MMM-YYYY + time (e.g., "15-Nov-2024 10:30")
+      final monthNames = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${istTimestamp.day}-${monthNames[istTimestamp.month - 1]}-${istTimestamp.year} $timeStr';
     }
   }
 

@@ -5,6 +5,9 @@ import 'package:share_plus/share_plus.dart';
 import '../models/post_data.dart';
 import '../services/content_provider.dart';
 import '../screens/comments_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../main.dart';
+import 'other_user_profile_screen.dart';
 
 // Displays user's posts in vertical feed starting from initial index
 class UserPostsView extends StatefulWidget {
@@ -200,36 +203,65 @@ class _PostCardState extends State<PostCard>
             children: [
               Row(
                 children: [
-                  CircleAvatar(
-                    backgroundImage: NetworkImage(
-                      updatedPost.avatarUrl.isNotEmpty
-                          ? updatedPost.avatarUrl
-                          : 'https://i.pravatar.cc/150',
-                    ),
-                    onBackgroundImageError: (exception, stackTrace) {
-                      // Handle error silently
+                  GestureDetector(
+                    onTap: () {
+                      // Navigate to profile tab
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) =>
+                                  const MainNavigationScaffold(initialIndex: 4),
+                        ),
+                        (route) => false,
+                      );
                     },
+                    child: CircleAvatar(
+                      backgroundImage: NetworkImage(
+                        updatedPost.avatarUrl.isNotEmpty
+                            ? updatedPost.avatarUrl
+                            : 'https://i.pravatar.cc/150',
+                      ),
+                      onBackgroundImageError: (exception, stackTrace) {
+                        // Handle error silently
+                      },
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          updatedPost.username,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                    child: GestureDetector(
+                      onTap: () {
+                        // Navigate to profile tab
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) => const MainNavigationScaffold(
+                                  initialIndex: 4,
+                                ),
                           ),
-                        ),
-                        Text(
-                          updatedPost.timeAgo,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
+                          (route) => false,
+                        );
+                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            updatedPost.username,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                      ],
+                          Text(
+                            updatedPost.timeAgo,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   SvgPicture.asset(
